@@ -67,10 +67,13 @@
   .top-right button { min-height: 44px; padding: 0 8px; text-align: right; }
   .top-right button:hover { color: var(--accent); }
   .controls { display: flex; align-items: center; }
-  .speed button[aria-pressed="true"] { color: var(--accent); text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1px; }
+  .top-right button[aria-pressed="true"] { color: var(--accent); text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1px; }
   .controls button { min-width: 44px; text-align: center; }
   .controls .play { text-align: right; }
   .sep { color: var(--hair); }
+  .view { display: flex; align-items: center; }
+  #north { display: flex; align-items: center; gap: 6px; }
+  #needle { display: block; width: 14px; height: 14px; fill: currentColor; }
   #clearBarri[hidden] { display: none; }
 
   .panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(320px, 100vw); background: var(--ground); border-left: 1px solid var(--hair);
@@ -83,8 +86,10 @@
   .panel .n { color: var(--muted); font-variant-numeric: tabular-nums; }
 
   .dock { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 16px max(8px, env(safe-area-inset-bottom)); pointer-events: none; }
-  .caption { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); }
-  .count { display: block; font-family: var(--display); font-stretch: 62%; font-weight: 800; font-size: min(26vw, 36vh); line-height: .8;
+  .caption { color: var(--muted); }
+  .count-row { --count-size: min(26vw, 36vh); display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
+  #captionRight { color: var(--muted); text-align: right; margin-bottom: calc(var(--count-size) * .2); }
+  .count { display: block; font-family: var(--display); font-stretch: 62%; font-weight: 800; font-size: var(--count-size); line-height: .8;
     letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink); margin: 10px 0 .16em -.02em; white-space: nowrap; }
   .timeline { position: relative; height: 44px; pointer-events: auto; cursor: ew-resize; touch-action: none; }
   .timeline .line { position: absolute; left: 0; right: 0; top: 22px; height: 1px; background: var(--hair); }
@@ -95,7 +100,7 @@
   .timeline .head { position: absolute; top: 22px; width: 11px; height: 11px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--accent); }
   .credit { margin: 6px 0 0; color: var(--muted); line-height: 1.4; padding-bottom: 2px; }
 
-  body.film .controls, body.film #barriBtn, body.film #clearBarri, body.film .hint { display: none; }
+  body.film .controls, body.film #barriBtn, body.film #clearBarri, body.film .hint, body.film #rotate { display: none; }
   .status { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 0 24px;
     text-align: center; line-height: 1.5; pointer-events: none; color: var(--muted); }
   .status[hidden], .status.nojs { display: none; }
@@ -106,8 +111,8 @@
   @media (max-width: 720px) {
     .top-left p { display: none; }
     .year { font-size: 44px; margin-top: 10px; }
-    .caption { flex-direction: column; gap: 2px; }
-    .count { font-size: min(30vw, 30vh); }
+    .count-row { --count-size: min(30vw, 30vh); flex-direction: column-reverse; align-items: flex-start; gap: 2px; }
+    #captionRight { text-align: left; margin-bottom: 0; }
     .credit { font-size: 12px; }
   }
 </style>
@@ -117,13 +122,19 @@
 
 <div class="top-left">
   <h1 class="caps">Barcelona Plantings</h1>
-  <p>Street trees by planting date. Faint points have no date on record. <span class="hint">Click or tap a tree to isolate its barri.</span></p>
+  <p>Street trees by planting date. Stem height is years in the ground. Faint points have no date on record. <span class="hint">Click or tap a tree to isolate its barri.</span></p>
   <div class="year" id="year">2007</div>
 </div>
 
 <div class="top-right caps">
   <button id="barriBtn" type="button" aria-expanded="false" aria-controls="panel">Barri: All Barcelona</button>
   <button id="clearBarri" type="button" hidden>Clear barri</button>
+  <div class="view">
+    <button id="north" type="button" aria-label="Face true north" title="Face true north">
+      <svg id="needle" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L18 21 L12 17 L6 21 Z"/></svg>N
+    </button>
+    <button id="rotate" type="button" aria-pressed="false">Rotate</button>
+  </div>
   <div class="controls">
     <button class="play" id="play" type="button">Pause</button>
     <span class="sep">/</span>
@@ -142,11 +153,11 @@
 </aside>
 
 <div class="dock">
-  <div class="caption caps">
-    <span id="captionLeft">Trees planted since 2007</span>
-    <span id="captionRight"></span>
+  <div class="caption caps" id="captionLeft">Trees planted since 2007</div>
+  <div class="count-row">
+    <span class="count" id="count" aria-live="off">0</span>
+    <span class="caps" id="captionRight"></span>
   </div>
-  <span class="count" id="count" aria-live="off">0</span>
   <div class="timeline" id="timeline" role="slider" tabindex="0" aria-label="Year" aria-valuemin="2007" aria-valuemax="2026" aria-valuenow="2007">
     <div class="line"><div class="fill" id="fill"></div></div>
     <div class="head" id="head"></div>
@@ -166,17 +177,36 @@
 const UNDATED = -1;
 const FILM = new URLSearchParams(location.search).has('film');
 const PLAY_SECONDS = 32;
-const FALL_HEIGHT_M = 600;
+const FALL_HEIGHT_M = 900;
+const TRAIL_M = 140;
+const STEM_MAX_M = 340;
+const STEM_GROWTH_EXP = 0.6;
+const BARRI_STEM_SCALE = 0.35;
+const STEM_SCALE_EASE = 0.08;
+const STEM_TIP_WIDTH_PX = 1;
+const STEM_TIP_START = 0.72;
+const GLOW_RADIUS_M = 38;
+const ORBIT_FIT_BEARINGS = 8;
+const THEME_ALPHA = {
+  dark: { stem: 26, tip: 110, glow: 3 },
+  light: { stem: 70, tip: 150, glow: 6 },
+};
+const OVER_BLEND = { depthWriteEnabled: false, depthCompare: 'always' };
+const ADDITIVE_BLEND = {
+  ...OVER_BLEND, blend: true, blendColorOperation: 'add', blendColorSrcFactor: 'src-alpha', blendColorDstFactor: 'one',
+  blendAlphaOperation: 'add', blendAlphaSrcFactor: 'one', blendAlphaDstFactor: 'one',
+};
 const FALL_MS = 520;
 const RIPPLE_MS = 800;
 const HOT_MS = 2600;
 const RIPPLE_MAX_M = 46;
 const LANDED_RADIUS_M = 6;
 const HOT_RADIUS_M = 15;
-const LANDED_ALPHA = 215;
+const LANDED_ALPHA = 120;
 const START_BEARING = -22;
 const AUTO_ROTATE_SPAN_DEG = 30;
 const AUTO_ROTATE_DEG_PER_SEC = AUTO_ROTATE_SPAN_DEG / PLAY_SECONDS;
+const ORBIT_DEG_PER_SEC = 3;
 const START_PITCH = 52;
 const MAX_FIT_ZOOM = 16.5;
 const FIT_PASSES = 3;
@@ -193,22 +223,26 @@ const MESSAGES = {
   start: 'The map failed to start. Reload to try again.',
   slow: 'Still loading. Slow connection?',
 };
-const TOP_PADDING_PX = 110;
+const TOP_PADDING_PX = 70;
 const SIDE_PADDING_PX = 40;
-const BOTTOM_PADDING_RATIO = 0.3;
+const BOTTOM_PADDING_RATIO = 0.16;
+const MAX_DEVICE_PIXELS = 1.5;
+const PHONE_ALPHA_SCALE = 0.45;
+const PHONE_DOT_SCALE = 0.55;
 const COUNT_REFRESH_MS = 300;
 const FILM_START_DELAY_MS = 900;
 const FILM_BEARING_RANGE = [-34, 30];
-const FILM_PITCH_RANGE = [46, 62];
-const FILM_ZOOM_GAIN = 0.55;
+const FILM_PITCH_RANGE = [70, 52];
+const FILM_ZOOM_PULL = 1.5;
 const PICKING_RADIUS_PX = 10;
+const CAMERA_MOVE_MS = 1400;
 const KEY_STEP_YEARS = 1;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const el = id => document.getElementById(id);
 const yearEl = el('year'), countEl = el('count'), playBtn = el('play'), timelineEl = el('timeline');
 const fillEl = el('fill'), headEl = el('head'), statusEl = el('status'), speedEl = el('speed');
-const statusTextEl = el('statusText'), reloadBtn = el('reload');
+const statusTextEl = el('statusText'), reloadBtn = el('reload'), rotateBtn = el('rotate'), needleEl = el('needle');
 const barriBtn = el('barriBtn'), clearBtn = el('clearBarri'), panelEl = el('panel'), listEl = el('barriList');
 const captionLeft = el('captionLeft'), captionRight = el('captionRight');
 
@@ -217,6 +251,7 @@ let plantedByBarri = [], barriBounds = [], cityBounds, datedTotal = 0;
 let currentT = 0, playing = false, speed = 1, selectedBarri = -1, autoRotate = !reducedMotion && !FILM;
 let lastFrame = 0, lastList = 0, palette, deckOverlay, map, baseCamera = null, dyn = null, ring = null;
 let listCounts = [], outline = null, resumeAfterPanel = false, mapLoaded = false;
+let undatedData = null, stemData = null, stemTipData = null, stemMids, stemKey = '', stemTops, stemScale = 1, settleMs = 0, filterExt = null, rotateCapped = true;
 
 class LoadFailure extends Error {}
 const lerp = (range, k) => range[0] + (range[1] - range[0]) * k;
@@ -251,6 +286,14 @@ function readPalette() {
     accent: cssColor('--accent'), old: cssColor('--old'), undated: cssColor('--undated'),
     ground: getComputedStyle(document.documentElement).getPropertyValue('--ground').trim(),
   };
+  // Additive light only reads on a dark ground; on the light theme it would burn out to white.
+  const isLight = matchMedia('(prefers-color-scheme: light)').matches;
+  const base = isLight ? THEME_ALPHA.light : THEME_ALPHA.dark;
+  // The same trees share far fewer pixels on a phone, so each one must add less light.
+  const density = innerWidth <= PHONE_MAX_WIDTH_PX ? PHONE_ALPHA_SCALE : 1;
+  palette.alpha = { stem: base.stem * density, tip: base.tip * density, glow: base.glow, landed: LANDED_ALPHA * density };
+  palette.dotScale = innerWidth <= PHONE_MAX_WIDTH_PX ? PHONE_DOT_SCALE : 1;
+  palette.blend = isLight ? OVER_BLEND : ADDITIVE_BLEND;
   if (map && map.getLayer('ground')) map.setPaintProperty('ground', 'background-color', palette.ground);
 }
 
@@ -293,14 +336,35 @@ function buildBuffers() {
     positions[i * 3 + 1] = data.lat[i];
     filterValues[i] = data.b[i];
   }
+  stemTops = positions.slice(datedStart * 3);
+  stemMids = positions.slice(datedStart * 3);
+}
+
+// Stem height is the tree's time in the ground, so it stays true when scrubbing.
+function growStems(count) {
+  const targetScale = selectedBarri < 0 ? 1 : BARRI_STEM_SCALE;
+  stemScale += (targetScale - stemScale) * STEM_SCALE_EASE;
+  if (Math.abs(targetScale - stemScale) < 0.001) stemScale = targetScale;
+  const key = `${count}|${currentT}|${stemScale}`;
+  if (key === stemKey) return;
+  stemKey = key;
+  stemData = null;
+  for (let i = 0; i < count; i++) {
+    const age = Math.max(0, currentT - data.t[datedStart + i]) / maxT;
+    const height = STEM_MAX_M * stemScale * Math.pow(age, STEM_GROWTH_EXP);
+    stemTops[i * 3 + 2] = height;
+    stemMids[i * 3 + 2] = height * STEM_TIP_START;
+  }
 }
 
 function daysPerMs() { return (maxT / PLAY_SECONDS) * speed / 1000; }
 function easeInQuad(x) { return x * x; }
-function mixColor(a, b, k) { return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]; }
 
 function allocDynamic(capacity) {
-  return { capacity, length: 0, pos: new Float32Array(capacity * 3), color: new Uint8Array(capacity * 4), radius: new Float32Array(capacity) };
+  return {
+    capacity, length: 0, pos: new Float32Array(capacity * 3), top: new Float32Array(capacity * 3),
+    color: new Uint8Array(capacity * 4), radius: new Float32Array(capacity),
+  };
 }
 
 function frameDynamic(landedEnd, target) {
@@ -311,14 +375,17 @@ function frameDynamic(landedEnd, target) {
   let d = 0, r = 0;
   for (let i = landedEnd; i < target; i++) {
     if (selectedBarri >= 0 && data.b[i] !== selectedBarri) continue;
-    const ageMs = (currentT - data.t[i]) / rate;
+    // settleMs keeps falling dots moving once the timeline stops, so none freeze in mid-air.
+    const ageMs = (currentT - data.t[i]) / rate + settleMs;
     const falling = ageMs < FALL_MS;
     const fallK = Math.min(1, ageMs / FALL_MS);
     const z = falling ? FALL_HEIGHT_M * (1 - easeInQuad(fallK)) : 0;
     const hotK = falling ? 0 : Math.min(1, Math.max(0, ageMs / HOT_MS));
-    const col = mixColor(palette.accent, palette.old, hotK);
+    if (hotK >= 1) continue;
+    const col = palette.accent;
     dyn.pos[d * 3] = data.lon[i]; dyn.pos[d * 3 + 1] = data.lat[i]; dyn.pos[d * 3 + 2] = z;
-    dyn.color.set([col[0], col[1], col[2], 255 - (255 - LANDED_ALPHA) * hotK], d * 4);
+    dyn.top[d * 3] = data.lon[i]; dyn.top[d * 3 + 1] = data.lat[i]; dyn.top[d * 3 + 2] = falling ? z + TRAIL_M : z;
+    dyn.color.set([col[0], col[1], col[2], 255 * (1 - hotK)], d * 4);
     dyn.radius[d] = LANDED_RADIUS_M + (HOT_RADIUS_M - LANDED_RADIUS_M) * (1 - hotK);
     d++;
     const rippleAge = ageMs - FALL_MS;
@@ -333,61 +400,124 @@ function frameDynamic(landedEnd, target) {
   dyn.length = d; ring.length = r;
 }
 
-function makeLayers(landedEnd) {
-  const { ScatterplotLayer } = deck;
+const groundDataCache = new Map();
+function groundDataFor(count) {
+  if (!groundDataCache.has(count)) {
+    if (groundDataCache.size > 8) groundDataCache.clear();
+    groundDataCache.set(count, {
+      length: count,
+      attributes: {
+        getPosition: { value: positions.subarray(datedStart * 3, (datedStart + count) * 3), size: 3 },
+        getFilterValue: { value: filterValues.subarray(datedStart, datedStart + count), size: 1 },
+      },
+    });
+  }
+  return groundDataCache.get(count);
+}
+
+function makeLayers(stemCount) {
+  const { ScatterplotLayer, LineLayer } = deck;
   const range = selectedBarri < 0 ? [-1, 999] : [selectedBarri, selectedBarri];
-  const filterExt = new deck.DataFilterExtension({ filterSize: 1 });
-  const landedCount = Math.max(0, landedEnd - datedStart);
+  if (!filterExt) filterExt = new deck.DataFilterExtension({ filterSize: 1 });
+  const { accent, alpha, blend } = palette;
+  // deck.gl re-uploads only when it sees a new array object, so changing buffers go in as fresh views
+  // and static layers keep the same data object until their count changes.
+  const groundData = groundDataFor(stemCount);
+  if (!stemData) {
+    stemData = {
+      length: stemCount,
+      attributes: {
+        getSourcePosition: groundData.attributes.getPosition,
+        getTargetPosition: { value: stemTops.subarray(0, stemCount * 3), size: 3 },
+        getFilterValue: groundData.attributes.getFilterValue,
+      },
+    };
+    stemTipData = {
+      length: stemCount,
+      attributes: {
+        getSourcePosition: { value: stemMids.subarray(0, stemCount * 3), size: 3 },
+        getTargetPosition: stemData.attributes.getTargetPosition,
+        getFilterValue: groundData.attributes.getFilterValue,
+      },
+    };
+  }
   const outlineLayers = outline ? [
     new deck.PathLayer({
       id: 'outline', data: outline.paths, getPath: d => d.path, getColor: [...palette.accent, OUTLINE_ALPHA],
-      getWidth: OUTLINE_WIDTH_PX, widthUnits: 'pixels', parameters: { depthTest: false },
+      getWidth: OUTLINE_WIDTH_PX, widthUnits: 'pixels', parameters: OVER_BLEND,
     }),
     new deck.TextLayer({
       id: 'outline-label', data: outline.labels, getPosition: d => d.position, getText: d => d.text,
       getColor: [...palette.accent, 255], getSize: LABEL_SIZE_PX, sizeUnits: 'pixels', fontFamily: 'JetBrains Mono, monospace',
       fontWeight: 500, getTextAnchor: 'middle', getAlignmentBaseline: 'bottom', getPixelOffset: [0, LABEL_OFFSET_PX],
-      parameters: { depthTest: false },
+      parameters: OVER_BLEND,
     }),
   ] : [];
   return [
-    ...outlineLayers,
     new ScatterplotLayer({
-      id: 'undated', pickable: true,
-      data: { length: datedStart, attributes: { getPosition: { value: positions, size: 3 } } },
+      id: 'undated', pickable: true, billboard: true,
+      data: undatedData || (undatedData = { length: datedStart, attributes: { getPosition: { value: positions, size: 3 } } }),
       getFillColor: [...palette.undated, selectedBarri < 0 ? 200 : 90],
-      radiusUnits: 'pixels', getRadius: 1.2, radiusMinPixels: 1.1,
+      radiusUnits: 'pixels', getRadius: 1.2 * palette.dotScale, radiusMinPixels: 1.1 * palette.dotScale, parameters: OVER_BLEND,
       updateTriggers: { getFillColor: [selectedBarri, palette] },
     }),
     new ScatterplotLayer({
-      id: 'landed', pickable: true,
-      data: { length: landedCount, attributes: {
-        getPosition: { value: positions.subarray(datedStart * 3), size: 3 },
-        getFilterValue: { value: filterValues.subarray(datedStart), size: 1 },
-      } },
-      getFillColor: [...palette.old, LANDED_ALPHA], getRadius: LANDED_RADIUS_M, radiusUnits: 'meters',
-      radiusMinPixels: 1.9, radiusMaxPixels: 8,
-      filterRange: range, extensions: [filterExt], parameters: { depthTest: false },
+      id: 'glow',
+      data: groundData,
+      getFillColor: [...accent, alpha.glow], getRadius: GLOW_RADIUS_M, radiusUnits: 'meters',
+      filterRange: range, extensions: [filterExt], parameters: blend,
       updateTriggers: { getFillColor: [palette] },
+    }),
+    new LineLayer({
+      id: 'stems', pickable: true,
+      data: stemData,
+      getColor: [...accent, alpha.stem], getWidth: 1, widthUnits: 'pixels',
+      filterRange: range, extensions: [filterExt], parameters: blend,
+      updateTriggers: { getColor: [palette] },
+    }),
+    new LineLayer({
+      id: 'stem-tips',
+      data: stemTipData,
+      getColor: [...accent, alpha.tip], getWidth: STEM_TIP_WIDTH_PX, widthUnits: 'pixels',
+      filterRange: range, extensions: [filterExt], parameters: blend,
+      updateTriggers: { getColor: [palette] },
+    }),
+    new ScatterplotLayer({
+      id: 'landed', pickable: true, billboard: true,
+      data: groundData,
+      getFillColor: [...palette.old, alpha.landed], getRadius: LANDED_RADIUS_M, radiusUnits: 'meters',
+      radiusMinPixels: 0.8 * palette.dotScale, radiusMaxPixels: 1.6 * palette.dotScale,
+      filterRange: range, extensions: [filterExt], parameters: OVER_BLEND,
+      updateTriggers: { getFillColor: [palette] },
+    }),
+    new LineLayer({
+      id: 'streaks',
+      data: { length: dyn.length, attributes: {
+        getSourcePosition: { value: dyn.pos.subarray(0, dyn.length * 3), size: 3 },
+        getTargetPosition: { value: dyn.top.subarray(0, dyn.length * 3), size: 3 },
+      } },
+      getColor: [...accent, alpha.tip], getWidth: 1.5, widthUnits: 'pixels', parameters: blend,
+      updateTriggers: { getColor: [palette] },
     }),
     new ScatterplotLayer({
       id: 'rings',
       data: { length: ring.length, attributes: {
-        getPosition: { value: ring.pos, size: 3 },
-        getLineColor: { value: ring.color, size: 4, normalized: true },
-        getRadius: { value: ring.radius, size: 1 },
+        getPosition: { value: ring.pos.subarray(0, ring.length * 3), size: 3 },
+        getLineColor: { value: ring.color.subarray(0, ring.length * 4), size: 4, normalized: true },
+        getRadius: { value: ring.radius.subarray(0, ring.length), size: 1 },
       } },
-      stroked: true, filled: false, lineWidthUnits: 'pixels', getLineWidth: 1.1, radiusUnits: 'meters', parameters: { depthTest: false },
+      stroked: true, filled: false, lineWidthUnits: 'pixels', getLineWidth: 1.1, radiusUnits: 'meters', parameters: blend,
     }),
     new ScatterplotLayer({
-      id: 'falling',
+      id: 'falling', billboard: true,
       data: { length: dyn.length, attributes: {
-        getPosition: { value: dyn.pos, size: 3 },
-        getFillColor: { value: dyn.color, size: 4, normalized: true },
-        getRadius: { value: dyn.radius, size: 1 },
+        getPosition: { value: dyn.pos.subarray(0, dyn.length * 3), size: 3 },
+        getFillColor: { value: dyn.color.subarray(0, dyn.length * 4), size: 4, normalized: true },
+        getRadius: { value: dyn.radius.subarray(0, dyn.length), size: 1 },
       } },
-      radiusUnits: 'meters', radiusMinPixels: 2.2, radiusMaxPixels: 16, parameters: { depthTest: false },
+      radiusUnits: 'meters', radiusMinPixels: 2.2, radiusMaxPixels: 16, parameters: blend,
     }),
+    ...outlineLayers,
   ];
 }
 
@@ -470,7 +600,7 @@ function selectBarri(b) {
   outline = b >= 0 ? buildOutline(b) : null;
   describeSelection();
   closePanel();
-  focusOn(b, reducedMotion || FILM ? 0 : 1400);
+  focusOn(b, reducedMotion || FILM ? 0 : CAMERA_MOVE_MS);
 }
 
 function openPanel() {
@@ -490,15 +620,18 @@ function closePanel() {
 }
 
 // The camera views the animation will pass through: the fit must hold for all of them, not just the first.
-function cameraViews() {
-  const sweep = [0, 0.5, 1];
-  if (FILM) {
-    return sweep.map(p => ({ bearing: lerp(FILM_BEARING_RANGE, p), pitch: lerp(FILM_PITCH_RANGE, p), zoomOffset: FILM_ZOOM_GAIN * p }));
+function cameraViews(bearing) {
+  // Film crops tight on purpose and pulls back, so only its final wide frame has to fit.
+  if (FILM) return [{ bearing: FILM_BEARING_RANGE[1], pitch: FILM_PITCH_RANGE[1] }];
+  if (bearing !== undefined) return [{ bearing, pitch: START_PITCH }];
+  if (autoRotate && rotateCapped) {
+    return [0, 0.5, 1].map(p => ({ bearing: START_BEARING + AUTO_ROTATE_SPAN_DEG * p, pitch: START_PITCH }));
   }
+  const current = map.getBearing();
   if (autoRotate) {
-    return sweep.map(p => ({ bearing: START_BEARING + AUTO_ROTATE_SPAN_DEG * p, pitch: START_PITCH, zoomOffset: 0 }));
+    return Array.from({ length: ORBIT_FIT_BEARINGS }, (_, i) => ({ bearing: current + (360 * i) / ORBIT_FIT_BEARINGS, pitch: START_PITCH }));
   }
-  return [{ bearing: map.getBearing(), pitch: START_PITCH, zoomOffset: 0 }];
+  return [{ bearing: current, pitch: START_PITCH }];
 }
 
 // cameraForBounds ignores pitch and bearing, so measure the real projected bounds in each view and
@@ -520,14 +653,14 @@ function fitView(box, hull, views) {
   for (let pass = 0; pass < FIT_PASSES; pass++) {
     let tightest = Infinity;
     for (const view of views) {
-      const r = measure(view, zoom + view.zoomOffset);
+      const r = measure(view, zoom);
       const scale = Math.min(availW / Math.max(1, r.x1 - r.x0), availH / Math.max(1, r.y1 - r.y0));
       tightest = Math.min(tightest, zoom + Math.log2(scale));
     }
     zoom = Math.min(tightest, MAX_FIT_ZOOM);
   }
   const mid = views[views.length >> 1];
-  const r = measure(mid, zoom + mid.zoomOffset);
+  const r = measure(mid, zoom);
   const dx = pad.left + availW / 2 - (r.x0 + r.x1) / 2;
   const dy = pad.top + availH / 2 - (r.y0 + r.y1) / 2;
   const center = map.unproject([innerWidth / 2 - dx, innerHeight / 2 - dy]);
@@ -535,8 +668,8 @@ function fitView(box, hull, views) {
   return { center, zoom };
 }
 
-function focusOn(b, duration) {
-  const views = cameraViews();
+function focusOn(b, duration, bearing) {
+  const views = cameraViews(bearing);
   const fit = fitView(b < 0 ? cityBounds : barriBounds[b], hullFor(b), views);
   if (!fit) return;
   if (selectedBarri < 0) baseCamera = fit;
@@ -607,6 +740,15 @@ function buildControls() {
   barriBtn.addEventListener('click', () => (panelEl.classList.contains('open') ? closePanel() : openPanel()));
   el('closePanel').addEventListener('click', closePanel);
   clearBtn.addEventListener('click', () => { selectBarri(-1); barriBtn.focus(); });
+  el('north').addEventListener('click', () => {
+    autoRotate = false;
+    focusOn(selectedBarri, reducedMotion ? 0 : CAMERA_MOVE_MS, 0);
+  });
+  el('rotate').addEventListener('click', () => {
+    autoRotate = !autoRotate;
+    rotateCapped = false;
+    focusOn(selectedBarri, reducedMotion ? 0 : CAMERA_MOVE_MS);
+  });
   playBtn.addEventListener('click', togglePlay);
   speedEl.addEventListener('click', e => {
     const btn = e.target.closest('button');
@@ -625,7 +767,7 @@ function filmCamera() {
   if (!FILM || !baseCamera) return;
   const p = Math.min(1, currentT / maxT);
   map.jumpTo({
-    center: baseCamera.center, zoom: baseCamera.zoom + FILM_ZOOM_GAIN * p,
+    center: baseCamera.center, zoom: baseCamera.zoom + FILM_ZOOM_PULL * (1 - p) * (1 - p),
     bearing: lerp(FILM_BEARING_RANGE, p), pitch: lerp(FILM_PITCH_RANGE, p),
   });
 }
@@ -636,18 +778,26 @@ function tick(now) {
   if (playing) {
     currentT = Math.min(maxT, currentT + daysPerMs() * dtMs);
     if (currentT >= maxT) setPlaying(false);
-    if (autoRotate) {
-      const bearing = map.getBearing() + (AUTO_ROTATE_DEG_PER_SEC * dtMs) / 1000;
-      if (bearing >= START_BEARING + AUTO_ROTATE_SPAN_DEG) autoRotate = false;
-      else map.setBearing(bearing);
-    }
+    settleMs = 0;
+  } else {
+    settleMs += dtMs;
   }
+  // The opening sway only runs during playback; an orbit the viewer asked for keeps going. setBearing would cancel an easeTo.
+  if (autoRotate && (playing || !rotateCapped) && !map.isEasing()) {
+    const bearing = map.getBearing() + ((rotateCapped ? AUTO_ROTATE_DEG_PER_SEC : ORBIT_DEG_PER_SEC) * dtMs) / 1000;
+    if (rotateCapped && bearing >= START_BEARING + AUTO_ROTATE_SPAN_DEG) autoRotate = false;
+    else map.setBearing(bearing);
+  }
+  rotateBtn.setAttribute('aria-pressed', String(autoRotate));
+  needleEl.style.transform = `rotate(${-map.getBearing()}deg)`;
   filmCamera();
   const target = indexAtOrBefore(currentT);
+  const stemCount = target - datedStart;
+  growStems(stemCount);
   const windowDays = (HOT_MS + 100) * daysPerMs();
   const landedEnd = Math.min(target, indexAtOrBefore(currentT - windowDays));
   frameDynamic(landedEnd, target);
-  deckOverlay.setProps({ layers: makeLayers(landedEnd).filter(layer => layer.props.data.length > 0) });
+  deckOverlay.setProps({ layers: makeLayers(stemCount).filter(layer => layer.props.data.length > 0) });
   updateHud();
   if (now - lastList > COUNT_REFRESH_MS) { updateList(); lastList = now; }
   requestAnimationFrame(tick);
@@ -655,7 +805,7 @@ function tick(now) {
 
 function onMapClick(info) {
   if (!info || info.index == null || info.index < 0 || !info.layer) return;
-  const offset = info.layer.id === 'landed' ? datedStart : 0;
+  const offset = info.layer.id === 'undated' ? 0 : datedStart;
   const b = data.b[offset + info.index];
   if (b >= 0 && b !== selectedBarri) selectBarri(b);
 }
@@ -692,7 +842,7 @@ function start(json) {
   map.on('load', () => {
     mapLoaded = true;
     deckOverlay = new deck.MapboxOverlay({
-      interleaved: false, layers: [], onClick: onMapClick, onHover: onMapHover, pickingRadius: PICKING_RADIUS_PX,
+      interleaved: false, layers: [], useDevicePixels: Math.min(devicePixelRatio, MAX_DEVICE_PIXELS), onClick: onMapClick, onHover: onMapHover, pickingRadius: PICKING_RADIUS_PX,
     });
     map.addControl(deckOverlay);
     focusOn(-1, 0);
