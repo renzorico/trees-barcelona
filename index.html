@@ -162,7 +162,7 @@
     <div class="line"><div class="fill" id="fill"></div></div>
     <div class="head" id="head"></div>
   </div>
-  <p class="credit">22% of Barcelona's street trees have a planting date. Data: Ajuntament de Barcelona, Open Data BCN, CC BY 4.0.</p>
+  <p class="credit">22% of street trees have a planting date. Trees: Ajuntament de Barcelona, Open Data BCN, CC BY 4.0. Relief exaggerated: Mapzen. Places: &copy; OpenStreetMap.</p>
 </div>
 
 <div class="status caps" id="status" role="status">
@@ -179,19 +179,40 @@ const FILM = new URLSearchParams(location.search).has('film');
 const PLAY_SECONDS = 32;
 const FALL_HEIGHT_M = 900;
 const TRAIL_M = 140;
-const STEM_MAX_M = 340;
+const STEM_MAX_M = 120;
 const STEM_GROWTH_EXP = 0.6;
-const BARRI_STEM_SCALE = 0.35;
+const BARRI_STEM_SCALE = 0.6;
 const STEM_SCALE_EASE = 0.08;
 const STEM_TIP_WIDTH_PX = 1;
 const STEM_TIP_START = 0.72;
 const GLOW_RADIUS_M = 38;
 const ORBIT_FIT_BEARINGS = 8;
 const THEME_ALPHA = {
-  dark: { stem: 26, tip: 110, glow: 3 },
+  dark: { stem: 40, tip: 170, glow: 4 },
   light: { stem: 70, tip: 150, glow: 6 },
 };
-const OVER_BLEND = { depthWriteEnabled: false, depthCompare: 'always' };
+const TERRAIN_EXAGGERATION = 2;
+const LANDMARK_EXAGGERATION = 2.5;
+const GROUND_LIFT_M = 3;
+const CONTOUR_LIFT_M = 4;
+const EARTH_RADIUS_M = 6378137;
+const LAND_BASE = 0.012;
+const LAND_SHADE = 0.09;
+const LAND_HEIGHT_TINT = 0.035;
+const LAND_TINT_HEIGHT_M = 500;
+const TERRAIN_FADE_CELLS = 40;
+const HILLSHADE_LIGHT = [-0.6, 0.8];
+const HILLSHADE_GAIN = 1.1;
+const LEADER_RISE_M = 130;
+const LANDMARK_LABEL_SIZE_PX = 11;
+const LABEL_BACKGROUND_ALPHA = 215;
+const SELECTED_GLOW_RADIUS_M = 16;
+const PHONE_LABELS = new Set(['tibidabo', 'sagrada', 'montjuic']);
+// Close neighbours would print on top of each other, so one speaks for both or sits higher.
+const LABEL_OVERRIDES = { arts: { hidden: true }, mapfre: { text: 'Vila Olímpica' }, collserola: { rise: 320 } };
+const OVER_BLEND = { depthWriteEnabled: false, depthCompare: 'less-equal' };
+const OVERLAY_BLEND = { depthWriteEnabled: false, depthCompare: 'always' };
+const SOLID_DEPTH = { depthWriteEnabled: true, depthCompare: 'less-equal' };
 const ADDITIVE_BLEND = {
   ...OVER_BLEND, blend: true, blendColorOperation: 'add', blendColorSrcFactor: 'src-alpha', blendColorDstFactor: 'one',
   blendAlphaOperation: 'add', blendAlphaSrcFactor: 'one', blendAlphaDstFactor: 'one',
@@ -251,6 +272,7 @@ let plantedByBarri = [], barriBounds = [], cityBounds, datedTotal = 0;
 let currentT = 0, playing = false, speed = 1, selectedBarri = -1, autoRotate = !reducedMotion && !FILM;
 let lastFrame = 0, lastList = 0, palette, deckOverlay, map, baseCamera = null, dyn = null, ring = null;
 let listCounts = [], outline = null, resumeAfterPanel = false, mapLoaded = false;
+let context, terrainElev, terrainMesh = null, contourPaths = [], shorePaths = [], beachRings = [], buildingPieces = [], landmarkLabels = [];
 let undatedData = null, stemData = null, stemTipData = null, stemMids, stemKey = '', stemTops, stemScale = 1, settleMs = 0, filterExt = null, rotateCapped = true;
 
 class LoadFailure extends Error {}
@@ -284,6 +306,7 @@ function cssColor(name) {
 function readPalette() {
   palette = {
     accent: cssColor('--accent'), old: cssColor('--old'), undated: cssColor('--undated'),
+    ink: cssColor('--ink'), groundRgb: cssColor('--ground'),
     ground: getComputedStyle(document.documentElement).getPropertyValue('--ground').trim(),
   };
   // Additive light only reads on a dark ground; on the light theme it would burn out to white.
@@ -294,6 +317,7 @@ function readPalette() {
   palette.alpha = { stem: base.stem * density, tip: base.tip * density, glow: base.glow, landed: LANDED_ALPHA * density };
   palette.dotScale = innerWidth <= PHONE_MAX_WIDTH_PX ? PHONE_DOT_SCALE : 1;
   palette.blend = isLight ? OVER_BLEND : ADDITIVE_BLEND;
+  if (terrainElev) terrainMesh = buildTerrainMesh();
   if (map && map.getLayer('ground')) map.setPaintProperty('ground', 'background-color', palette.ground);
 }
 
@@ -327,6 +351,146 @@ function buildIndexes() {
   }
 }
 
+const groundZ = elevation => Math.max(elevation, 0) * TERRAIN_EXAGGERATION + GROUND_LIFT_M;
+
+function sampleGroundZ(lon, lat) {
+  const { columns, rows } = context.terrain;
+  const column = Math.round(((lon - context.terrain.lon[0]) / (context.terrain.lon[1] - context.terrain.lon[0])) * (columns - 1));
+  const row = Math.round(((lat - context.terrain.lat[0]) / (context.terrain.lat[1] - context.terrain.lat[0])) * (rows - 1));
+  return groundZ(terrainElev[Math.min(rows - 1, Math.max(0, row)) * columns + Math.min(columns - 1, Math.max(0, column))]);
+}
+
+// Vertices are metres from the grid centre, on the same Mercator spacing deck.gl uses for the trees.
+function buildTerrainMesh() {
+  const { columns, rows, lon, lat, shoreLevel } = context.terrain;
+  const lon0 = (lon[0] + lon[1]) / 2, lat0 = (lat[0] + lat[1]) / 2;
+  const toRadians = Math.PI / 180;
+  const metersPerRadian = EARTH_RADIUS_M * Math.cos(lat0 * toRadians);
+  const mercator = latitude => Math.asinh(Math.tan(latitude * toRadians));
+  const count = columns * rows;
+  const vertices = new Float32Array(count * 3), colors = new Float32Array(count * 3), normals = new Float32Array(count * 3);
+  const elevationAt = (column, row) => Math.max(terrainElev[row * columns + column], 0) * TERRAIN_EXAGGERATION;
+  const stepX = (lon[1] - lon[0]) / (columns - 1) * toRadians * metersPerRadian;
+  const stepY = (mercator(lat[1]) - mercator(lat[0])) / (rows - 1) * metersPerRadian;
+  const ground = palette.groundRgb, ink = palette.ink;
+  for (let row = 0; row < rows; row++) {
+    const y = (mercator(lat[0] + (lat[1] - lat[0]) * row / (rows - 1)) - mercator(lat0)) * metersPerRadian;
+    for (let column = 0; column < columns; column++) {
+      const i = row * columns + column;
+      const raw = terrainElev[i];
+      const z = elevationAt(column, row);
+      vertices[i * 3] = (lon[0] + (lon[1] - lon[0]) * column / (columns - 1) - lon0) * toRadians * metersPerRadian;
+      vertices[i * 3 + 1] = y;
+      vertices[i * 3 + 2] = z;
+      const slopeX = (elevationAt(Math.min(columns - 1, column + 1), row) - elevationAt(Math.max(0, column - 1), row)) / (2 * stepX);
+      const slopeY = (elevationAt(column, Math.min(rows - 1, row + 1)) - elevationAt(column, Math.max(0, row - 1))) / (2 * stepY);
+      normals[i * 3] = -slopeX; normals[i * 3 + 1] = -slopeY; normals[i * 3 + 2] = 1;
+      const edge = Math.min(column, row, columns - 1 - column, rows - 1 - row);
+      const fade = Math.min(1, edge / TERRAIN_FADE_CELLS);
+      const lit = Math.max(0, Math.min(1, 0.5 + HILLSHADE_GAIN * (-slopeX * HILLSHADE_LIGHT[0] - slopeY * HILLSHADE_LIGHT[1])));
+      const mix = raw <= shoreLevel ? 0 : fade * (LAND_BASE + LAND_SHADE * lit + LAND_HEIGHT_TINT * Math.min(1, raw / LAND_TINT_HEIGHT_M));
+      for (let channel = 0; channel < 3; channel++) {
+        colors[i * 3 + channel] = (ground[channel] + (ink[channel] - ground[channel]) * mix) / 255;
+      }
+    }
+  }
+  const indices = new Uint32Array((columns - 1) * (rows - 1) * 6);
+  let cursor = 0;
+  for (let row = 0; row < rows - 1; row++) {
+    for (let column = 0; column < columns - 1; column++) {
+      const a = row * columns + column, b = a + 1, c = a + columns, d = c + 1;
+      indices.set([a, b, c, b, d, c], cursor);
+      cursor += 6;
+    }
+  }
+  return {
+    topology: 'triangle-list',
+    attributes: {
+      positions: { value: vertices, size: 3 },
+      normals: { value: normals, size: 3 },
+      colors: { value: colors, size: 3 },
+      texCoords: { value: new Float32Array(count * 2), size: 2 },
+    },
+    indices: { value: indices, size: 1 },
+  };
+}
+
+function buildContext() {
+  const lift = (line, z) => line.map(point => [point[0], point[1], z]);
+  contourPaths = context.contours.flatMap(({ level, index, lines }) =>
+    lines.map(line => ({ path: lift(line, level * TERRAIN_EXAGGERATION + CONTOUR_LIFT_M), index })));
+  shorePaths = context.shore.map(line => ({ path: lift(line, CONTOUR_LIFT_M) }));
+  beachRings = context.beaches.map(ring => ({ polygon: lift(ring, 1) }));
+  const phone = innerWidth <= PHONE_MAX_WIDTH_PX;
+  buildingPieces = [];
+  landmarkLabels = [];
+  for (const place of context.landmarks) {
+    const ground = groundZ(place.ground);
+    let summit = ground;
+    for (const piece of place.pieces) {
+      const base = ground + piece.base * LANDMARK_EXAGGERATION;
+      const top = ground + piece.top * LANDMARK_EXAGGERATION;
+      buildingPieces.push({ polygon: lift(piece.ring, base), height: top - base });
+      summit = Math.max(summit, top);
+    }
+    const override = LABEL_OVERRIDES[place.id] || {};
+    if (!override.hidden && (!phone || PHONE_LABELS.has(place.id))) {
+      landmarkLabels.push({
+        text: (override.text || place.label).toUpperCase(),
+        from: [place.lon, place.lat, summit],
+        to: [place.lon, place.lat, summit + (override.rise || LEADER_RISE_M)],
+      });
+    }
+  }
+}
+
+function contextLayers() {
+  const { ink, groundRgb } = palette;
+  const lon0 = (context.terrain.lon[0] + context.terrain.lon[1]) / 2;
+  const lat0 = (context.terrain.lat[0] + context.terrain.lat[1]) / 2;
+  const themed = { getColor: [palette], getFillColor: [palette], getLineColor: [palette] };
+  return [
+    new deck.SimpleMeshLayer({
+      id: 'terrain', data: [{ position: [lon0, lat0, 0] }], mesh: terrainMesh, getPosition: d => d.position,
+      getColor: [255, 255, 255], material: false, parameters: SOLID_DEPTH,
+    }),
+    new deck.SolidPolygonLayer({
+      id: 'beaches', data: beachRings, getPolygon: d => d.polygon, getFillColor: [...ink, 40], material: false,
+      parameters: OVER_BLEND, updateTriggers: themed,
+    }),
+    new deck.PathLayer({
+      id: 'shore', data: shorePaths, getPath: d => d.path, getColor: [...ink, 110], getWidth: 1, widthUnits: 'pixels',
+      parameters: OVER_BLEND, updateTriggers: themed,
+    }),
+    new deck.PathLayer({
+      id: 'contours', data: contourPaths, getPath: d => d.path, getColor: d => [...ink, d.index ? 70 : 34],
+      getWidth: d => (d.index ? 1 : 0.7), widthUnits: 'pixels', parameters: OVER_BLEND, updateTriggers: themed,
+    }),
+    new deck.SolidPolygonLayer({
+      id: 'buildings', data: buildingPieces, getPolygon: d => d.polygon, getElevation: d => d.height, extruded: true, wireframe: true,
+      getFillColor: [...groundRgb, 255], getLineColor: [...ink, 190], material: false, parameters: SOLID_DEPTH, updateTriggers: themed,
+    }),
+  ];
+}
+
+function labelLayers() {
+  const { ink } = palette;
+  const themed = { getColor: [palette] };
+  return [
+    new deck.LineLayer({
+      id: 'leaders', data: landmarkLabels, getSourcePosition: d => d.from, getTargetPosition: d => d.to,
+      getColor: [...ink, 130], getWidth: 1, widthUnits: 'pixels', parameters: OVERLAY_BLEND, updateTriggers: themed,
+    }),
+    new deck.TextLayer({
+      id: 'landmark-labels', data: landmarkLabels, getPosition: d => d.to, getText: d => d.text, characterSet: 'auto',
+      getColor: [...ink, 230], getSize: LANDMARK_LABEL_SIZE_PX, sizeUnits: 'pixels', fontFamily: 'JetBrains Mono, monospace', fontWeight: 500,
+      getTextAnchor: 'middle', getAlignmentBaseline: 'bottom', getPixelOffset: [0, -3], background: true,
+      getBackgroundColor: [...palette.groundRgb, LABEL_BACKGROUND_ALPHA], backgroundPadding: [4, 2],
+      parameters: OVERLAY_BLEND, updateTriggers: { getColor: [palette], getBackgroundColor: [palette] },
+    }),
+  ];
+}
+
 function buildBuffers() {
   const n = data.t.length;
   positions = new Float32Array(n * 3);
@@ -334,6 +498,7 @@ function buildBuffers() {
   for (let i = 0; i < n; i++) {
     positions[i * 3] = data.lon[i];
     positions[i * 3 + 1] = data.lat[i];
+    positions[i * 3 + 2] = groundZ(data.e[i]);
     filterValues[i] = data.b[i];
   }
   stemTops = positions.slice(datedStart * 3);
@@ -352,8 +517,9 @@ function growStems(count) {
   for (let i = 0; i < count; i++) {
     const age = Math.max(0, currentT - data.t[datedStart + i]) / maxT;
     const height = STEM_MAX_M * stemScale * Math.pow(age, STEM_GROWTH_EXP);
-    stemTops[i * 3 + 2] = height;
-    stemMids[i * 3 + 2] = height * STEM_TIP_START;
+    const ground = positions[(datedStart + i) * 3 + 2];
+    stemTops[i * 3 + 2] = ground + height;
+    stemMids[i * 3 + 2] = ground + height * STEM_TIP_START;
   }
 }
 
@@ -379,7 +545,8 @@ function frameDynamic(landedEnd, target) {
     const ageMs = (currentT - data.t[i]) / rate + settleMs;
     const falling = ageMs < FALL_MS;
     const fallK = Math.min(1, ageMs / FALL_MS);
-    const z = falling ? FALL_HEIGHT_M * (1 - easeInQuad(fallK)) : 0;
+    const ground = positions[i * 3 + 2];
+    const z = ground + (falling ? FALL_HEIGHT_M * (1 - easeInQuad(fallK)) : 0);
     const hotK = falling ? 0 : Math.min(1, Math.max(0, ageMs / HOT_MS));
     if (hotK >= 1) continue;
     const col = palette.accent;
@@ -391,7 +558,7 @@ function frameDynamic(landedEnd, target) {
     const rippleAge = ageMs - FALL_MS;
     if (rippleAge > 0 && rippleAge < RIPPLE_MS) {
       const rk = rippleAge / RIPPLE_MS;
-      ring.pos[r * 3] = data.lon[i]; ring.pos[r * 3 + 1] = data.lat[i]; ring.pos[r * 3 + 2] = 0;
+      ring.pos[r * 3] = data.lon[i]; ring.pos[r * 3 + 1] = data.lat[i]; ring.pos[r * 3 + 2] = ground;
       ring.color.set([palette.accent[0], palette.accent[1], palette.accent[2], Math.round(230 * (1 - rk))], r * 4);
       ring.radius[r] = LANDED_RADIUS_M + RIPPLE_MAX_M * (1 - Math.pow(1 - rk, 3));
       r++;
@@ -444,16 +611,17 @@ function makeLayers(stemCount) {
   const outlineLayers = outline ? [
     new deck.PathLayer({
       id: 'outline', data: outline.paths, getPath: d => d.path, getColor: [...palette.accent, OUTLINE_ALPHA],
-      getWidth: OUTLINE_WIDTH_PX, widthUnits: 'pixels', parameters: OVER_BLEND,
+      getWidth: OUTLINE_WIDTH_PX, widthUnits: 'pixels', parameters: OVERLAY_BLEND,
     }),
     new deck.TextLayer({
       id: 'outline-label', data: outline.labels, getPosition: d => d.position, getText: d => d.text,
       getColor: [...palette.accent, 255], getSize: LABEL_SIZE_PX, sizeUnits: 'pixels', fontFamily: 'JetBrains Mono, monospace',
       fontWeight: 500, getTextAnchor: 'middle', getAlignmentBaseline: 'bottom', getPixelOffset: [0, LABEL_OFFSET_PX],
-      parameters: OVER_BLEND,
+      characterSet: 'auto', parameters: OVERLAY_BLEND,
     }),
   ] : [];
   return [
+    ...contextLayers(),
     new ScatterplotLayer({
       id: 'undated', pickable: true, billboard: true,
       data: undatedData || (undatedData = { length: datedStart, attributes: { getPosition: { value: positions, size: 3 } } }),
@@ -464,7 +632,7 @@ function makeLayers(stemCount) {
     new ScatterplotLayer({
       id: 'glow',
       data: groundData,
-      getFillColor: [...accent, alpha.glow], getRadius: GLOW_RADIUS_M, radiusUnits: 'meters',
+      getFillColor: [...accent, alpha.glow], getRadius: selectedBarri < 0 ? GLOW_RADIUS_M : SELECTED_GLOW_RADIUS_M, radiusUnits: 'meters',
       filterRange: range, extensions: [filterExt], parameters: blend,
       updateTriggers: { getFillColor: [palette] },
     }),
@@ -517,6 +685,7 @@ function makeLayers(stemCount) {
       } },
       radiusUnits: 'meters', radiusMinPixels: 2.2, radiusMaxPixels: 16, parameters: blend,
     }),
+    ...labelLayers(),
     ...outlineLayers,
   ];
 }
@@ -589,8 +758,8 @@ function buildOutline(b) {
   if (hull.length < 2) return null;
   const box = barriBounds[b];
   return {
-    paths: [{ path: [...hull, hull[0]] }],
-    labels: [{ text: titleCase(data.barris[b]).toUpperCase(), position: [(box[0] + box[2]) / 2, box[3]] }],
+    paths: [{ path: [...hull, hull[0]].map(([lon, lat]) => [lon, lat, sampleGroundZ(lon, lat)]) }],
+    labels: [{ text: titleCase(data.barris[b]).toUpperCase(), position: [(box[0] + box[2]) / 2, box[3], sampleGroundZ((box[0] + box[2]) / 2, box[3])] }],
   };
 }
 
@@ -826,6 +995,7 @@ function start(json) {
   buildIndexes();
   buildBuffers();
   readPalette();
+  buildContext();
   buildControls();
   describeSelection();
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', readPalette);
@@ -857,10 +1027,14 @@ function boot() {
   if (typeof maplibregl === 'undefined' || typeof deck === 'undefined') return showFailure(MESSAGES.libraries);
   if (!hasWebGL()) return showFailure(MESSAGES.webgl);
   setTimeout(() => { if (!statusEl.hidden && !statusEl.classList.contains('failed')) statusTextEl.textContent = MESSAGES.slow; }, SLOW_LOAD_MS);
-  fetch('trees.json')
-    .then(r => { if (!r.ok) throw new Error('trees.json ' + r.status); return r.json(); })
+  const load = (file, read) => fetch(file).then(r => { if (!r.ok) throw new Error(file + ' ' + r.status); return read(r); });
+  Promise.all([load('trees.json', r => r.json()), load('context.json', r => r.json()), load('terrain.bin', r => r.arrayBuffer())])
     .catch(err => { throw new LoadFailure(MESSAGES.data, { cause: err }); })
-    .then(start)
+    .then(([trees, contextJson, terrainBuffer]) => {
+      context = contextJson;
+      terrainElev = new Int16Array(terrainBuffer);
+      start(trees);
+    })
     .catch(err => showFailure(err instanceof LoadFailure ? err.message : MESSAGES.start, err));
 }
 boot();
