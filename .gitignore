@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+node_modules/
+__pycache__/
+.venv/
+dist/
+.next/
+.vercel/
+.DS_Store
+Thumbs.db
+
+# Source CSV (41 MB): download it again, see README
+data/
+# Local design-tool state and audit captures
+.impeccable/
+audits/screens/

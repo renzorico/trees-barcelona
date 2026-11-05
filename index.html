@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Barcelona Plantings</title>
+<meta name="description" content="Barcelona's street trees appearing by planting date, 2007 to 2026, in 3D. Only trees with a recorded planting date are animated. Data: Open Data BCN.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#07080a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#e9ecee" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Barcelona Plantings">
+<meta property="og:description" content="Barcelona's street trees appearing by planting date, 2007 to 2026, in 3D.">
+<meta property="og:image" content="og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="og.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2307080a'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23c6ff3d'/%3E%3C/svg%3E">
+<noscript><style>.status.nojs { display: grid; } #status { display: none; }</style></noscript>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+  :root {
+    --ground: #07080a;
+    --ink: #f2f2ee;
+    --muted: #8a8f97;
+    --hair: #2a2d33;
+    --accent: #c6ff3d;
+    --old: #cfd3d8;
+    --undated: #3a3e46;
+    --display: "Archivo", "Arial Narrow", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --ground: #e9ecee;
+      --ink: #0b0c0e;
+      --muted: #565c64;
+      --hair: #b9bec4;
+      --accent: #3d6e00;
+      --old: #2b2f36;
+      --undated: #aab0b8;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--ground); color: var(--ink); }
+  body { font-family: var(--mono); font-size: 12px; overflow: hidden; -webkit-font-smoothing: antialiased; }
+  body.film { cursor: none; }
+  ::selection { background: var(--accent); color: #07080a; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+
+  #map { position: fixed; inset: 0; }
+  .maplibregl-canvas { outline: none; }
+  .maplibregl-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .maplibregl-ctrl-attrib { display: none; }
+
+  .caps { text-transform: uppercase; letter-spacing: .08em; }
+  .top-left { position: fixed; top: max(16px, env(safe-area-inset-top)); left: 16px; pointer-events: none; }
+  .top-left h1 { margin: 0; font-size: 12px; font-weight: 500; }
+  .top-left p { margin: 4px 0 0; color: var(--muted); max-width: 28ch; line-height: 1.5; }
+  .year { font-family: var(--display); font-stretch: 62%; font-weight: 800; font-size: clamp(40px, 6.5vw, 84px); line-height: .9; margin-top: 14px;
+    font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+  .top-right { position: fixed; top: max(8px, env(safe-area-inset-top)); right: 8px; display: flex; flex-direction: column; align-items: flex-end; }
+  .top-right button { min-height: 44px; padding: 0 8px; text-align: right; }
+  .top-right button:hover { color: var(--accent); }
+  .controls { display: flex; align-items: center; }
+  .speed button[aria-pressed="true"] { color: var(--accent); text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1px; }
+  .controls button { min-width: 44px; text-align: center; }
+  .controls .play { text-align: right; }
+  .sep { color: var(--hair); }
+  #clearBarri[hidden] { display: none; }
+
+  .panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(320px, 100vw); background: var(--ground); border-left: 1px solid var(--hair);
+    display: none; flex-direction: column; z-index: 5; }
+  .panel.open { display: flex; }
+  .panel header { display: flex; justify-content: space-between; align-items: center; padding: 0 8px 0 16px; border-bottom: 1px solid var(--hair); min-height: 52px; }
+  .panel ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+  .panel li button { width: 100%; display: flex; justify-content: space-between; gap: 12px; min-height: 40px; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--hair); text-align: left; }
+  .panel li button:hover, .panel li button[aria-current="true"] { color: var(--accent); }
+  .panel .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .dock { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 16px max(8px, env(safe-area-inset-bottom)); pointer-events: none; }
+  .caption { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); }
+  .count { display: block; font-family: var(--display); font-stretch: 62%; font-weight: 800; font-size: min(26vw, 36vh); line-height: .8;
+    letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink); margin: 10px 0 .16em -.02em; white-space: nowrap; }
+  .timeline { position: relative; height: 44px; pointer-events: auto; cursor: ew-resize; touch-action: none; }
+  .timeline .line { position: absolute; left: 0; right: 0; top: 22px; height: 1px; background: var(--hair); }
+  .timeline .fill { position: absolute; left: 0; top: 0; height: 1px; background: var(--accent); width: 0; }
+  .timeline .tick { position: absolute; top: 22px; width: 1px; height: 6px; background: var(--hair); }
+  .timeline .tick.major { height: 12px; background: var(--muted); }
+  .timeline .label { position: absolute; top: 32px; transform: translateX(-50%); color: var(--muted); font-size: 12px; }
+  .timeline .head { position: absolute; top: 22px; width: 11px; height: 11px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--accent); }
+  .credit { margin: 6px 0 0; color: var(--muted); line-height: 1.4; padding-bottom: 2px; }
+
+  body.film .controls, body.film #barriBtn, body.film #clearBarri, body.film .hint { display: none; }
+  .status { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 0 24px;
+    text-align: center; line-height: 1.5; pointer-events: none; color: var(--muted); }
+  .status[hidden], .status.nojs { display: none; }
+  .status.failed { pointer-events: auto; color: var(--ink); }
+  .status button { min-height: 44px; padding: 0 16px; color: var(--accent); text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1px; }
+  .status button[hidden] { display: none; }
+
+  @media (max-width: 720px) {
+    .top-left p { display: none; }
+    .year { font-size: 44px; margin-top: 10px; }
+    .caption { flex-direction: column; gap: 2px; }
+    .count { font-size: min(30vw, 30vh); }
+    .credit { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="map" role="img" aria-label="3D map of Barcelona street trees appearing by planting date"></div>
+
+<div class="top-left">
+  <h1 class="caps">Barcelona Plantings</h1>
+  <p>Street trees by planting date. Faint points have no date on record. <span class="hint">Click or tap a tree to isolate its barri.</span></p>
+  <div class="year" id="year">2007</div>
+</div>
+
+<div class="top-right caps">
+  <button id="barriBtn" type="button" aria-expanded="false" aria-controls="panel">Barri: All Barcelona</button>
+  <button id="clearBarri" type="button" hidden>Clear barri</button>
+  <div class="controls">
+    <button class="play" id="play" type="button">Pause</button>
+    <span class="sep">/</span>
+    <div class="speed" id="speed" role="group" aria-label="Playback speed" style="display:flex">
+      <button type="button" data-speed="0.5" aria-pressed="false">0.5x</button>
+      <button type="button" data-speed="1" aria-pressed="true">1x</button>
+      <button type="button" data-speed="2" aria-pressed="false">2x</button>
+      <button type="button" data-speed="4" aria-pressed="false">4x</button>
+    </div>
+  </div>
+</div>
+
+<aside class="panel caps" id="panel" aria-label="Neighbourhoods">
+  <header><span>Barris</span><button id="closePanel" type="button" style="min-height:44px;padding:0 8px">Close</button></header>
+  <ul id="barriList"></ul>
+</aside>
+
+<div class="dock">
+  <div class="caption caps">
+    <span id="captionLeft">Trees planted since 2007</span>
+    <span id="captionRight"></span>
+  </div>
+  <span class="count" id="count" aria-live="off">0</span>
+  <div class="timeline" id="timeline" role="slider" tabindex="0" aria-label="Year" aria-valuemin="2007" aria-valuemax="2026" aria-valuenow="2007">
+    <div class="line"><div class="fill" id="fill"></div></div>
+    <div class="head" id="head"></div>
+  </div>
+  <p class="credit">22% of Barcelona's street trees have a planting date. Data: Ajuntament de Barcelona, Open Data BCN, CC BY 4.0.</p>
+</div>
+
+<div class="status caps" id="status" role="status">
+  <span id="statusText">Loading map and trees</span>
+  <button id="reload" type="button" hidden>Reload</button>
+</div>
+<div class="status caps nojs">This map needs JavaScript.</div>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.0.38/dist.min.js"></script>
+<script>
+const UNDATED = -1;
+const FILM = new URLSearchParams(location.search).has('film');
+const PLAY_SECONDS = 32;
+const FALL_HEIGHT_M = 600;
+const FALL_MS = 520;
+const RIPPLE_MS = 800;
+const HOT_MS = 2600;
+const RIPPLE_MAX_M = 46;
+const LANDED_RADIUS_M = 6;
+const HOT_RADIUS_M = 15;
+const LANDED_ALPHA = 215;
+const START_BEARING = -22;
+const AUTO_ROTATE_SPAN_DEG = 30;
+const AUTO_ROTATE_DEG_PER_SEC = AUTO_ROTATE_SPAN_DEG / PLAY_SECONDS;
+const START_PITCH = 52;
+const MAX_FIT_ZOOM = 16.5;
+const FIT_PASSES = 3;
+const PHONE_MAX_WIDTH_PX = 720;
+const SLOW_LOAD_MS = 12000;
+const OUTLINE_WIDTH_PX = 1.5;
+const OUTLINE_ALPHA = 200;
+const LABEL_SIZE_PX = 12;
+const LABEL_OFFSET_PX = -6;
+const MESSAGES = {
+  libraries: 'Could not load the map libraries. Check your connection, then reload.',
+  webgl: 'This map needs WebGL, and this browser has it turned off or does not support it.',
+  data: 'Could not load the tree data. Check your connection, then reload.',
+  start: 'The map failed to start. Reload to try again.',
+  slow: 'Still loading. Slow connection?',
+};
+const TOP_PADDING_PX = 110;
+const SIDE_PADDING_PX = 40;
+const BOTTOM_PADDING_RATIO = 0.3;
+const COUNT_REFRESH_MS = 300;
+const FILM_START_DELAY_MS = 900;
+const FILM_BEARING_RANGE = [-34, 30];
+const FILM_PITCH_RANGE = [46, 62];
+const FILM_ZOOM_GAIN = 0.55;
+const PICKING_RADIUS_PX = 10;
+const KEY_STEP_YEARS = 1;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const el = id => document.getElementById(id);
+const yearEl = el('year'), countEl = el('count'), playBtn = el('play'), timelineEl = el('timeline');
+const fillEl = el('fill'), headEl = el('head'), statusEl = el('status'), speedEl = el('speed');
+const statusTextEl = el('statusText'), reloadBtn = el('reload');
+const barriBtn = el('barriBtn'), clearBtn = el('clearBarri'), panelEl = el('panel'), listEl = el('barriList');
+const captionLeft = el('captionLeft'), captionRight = el('captionRight');
+
+let data, positions, filterValues, datedStart = 0, datedTimes, maxT = 1, epochMs = 0, firstYear = 0, lastYear = 0;
+let plantedByBarri = [], barriBounds = [], cityBounds, datedTotal = 0;
+let currentT = 0, playing = false, speed = 1, selectedBarri = -1, autoRotate = !reducedMotion && !FILM;
+let lastFrame = 0, lastList = 0, palette, deckOverlay, map, baseCamera = null, dyn = null, ring = null;
+let listCounts = [], outline = null, resumeAfterPanel = false, mapLoaded = false;
+
+class LoadFailure extends Error {}
+const lerp = (range, k) => range[0] + (range[1] - range[0]) * k;
+
+function showFailure(message, detail) {
+  if (detail) console.error(detail);
+  statusEl.hidden = false;
+  statusEl.classList.add('failed');
+  statusEl.setAttribute('role', 'alert');
+  statusTextEl.textContent = message;
+  reloadBtn.hidden = false;
+}
+reloadBtn.addEventListener('click', () => location.reload());
+
+function hasWebGL() {
+  try {
+    const canvas = document.createElement('canvas');
+    return Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'));
+  } catch {
+    return false;
+  }
+}
+
+function cssColor(name) {
+  const hex = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function readPalette() {
+  palette = {
+    accent: cssColor('--accent'), old: cssColor('--old'), undated: cssColor('--undated'),
+    ground: getComputedStyle(document.documentElement).getPropertyValue('--ground').trim(),
+  };
+  if (map && map.getLayer('ground')) map.setPaintProperty('ground', 'background-color', palette.ground);
+}
+
+function lowerBound(sorted, value) {
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] <= value) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+function indexAtOrBefore(t) { return datedStart + lowerBound(datedTimes, t); }
+
+function buildIndexes() {
+  datedTimes = data.t.slice(datedStart);
+  datedTotal = datedTimes.length;
+  plantedByBarri = data.barris.map(() => []);
+  barriBounds = data.barris.map(() => [Infinity, Infinity, -Infinity, -Infinity]);
+  cityBounds = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < data.t.length; i++) {
+    const lon = data.lon[i], lat = data.lat[i];
+    if (lon < cityBounds[0]) cityBounds[0] = lon;
+    if (lat < cityBounds[1]) cityBounds[1] = lat;
+    if (lon > cityBounds[2]) cityBounds[2] = lon;
+    if (lat > cityBounds[3]) cityBounds[3] = lat;
+    const b = data.b[i];
+    if (b < 0) continue;
+    const box = barriBounds[b];
+    if (lon < box[0]) box[0] = lon;
+    if (lat < box[1]) box[1] = lat;
+    if (lon > box[2]) box[2] = lon;
+    if (lat > box[3]) box[3] = lat;
+    if (i >= datedStart) plantedByBarri[b].push(data.t[i]);
+  }
+}
+
+function buildBuffers() {
+  const n = data.t.length;
+  positions = new Float32Array(n * 3);
+  filterValues = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    positions[i * 3] = data.lon[i];
+    positions[i * 3 + 1] = data.lat[i];
+    filterValues[i] = data.b[i];
+  }
+}
+
+function daysPerMs() { return (maxT / PLAY_SECONDS) * speed / 1000; }
+function easeInQuad(x) { return x * x; }
+function mixColor(a, b, k) { return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]; }
+
+function allocDynamic(capacity) {
+  return { capacity, length: 0, pos: new Float32Array(capacity * 3), color: new Uint8Array(capacity * 4), radius: new Float32Array(capacity) };
+}
+
+function frameDynamic(landedEnd, target) {
+  const rate = daysPerMs();
+  const needed = target - landedEnd;
+  if (!dyn || dyn.capacity < needed) dyn = allocDynamic(Math.max(needed * 2, 4096));
+  if (!ring || ring.capacity < needed) ring = allocDynamic(Math.max(needed * 2, 4096));
+  let d = 0, r = 0;
+  for (let i = landedEnd; i < target; i++) {
+    if (selectedBarri >= 0 && data.b[i] !== selectedBarri) continue;
+    const ageMs = (currentT - data.t[i]) / rate;
+    const falling = ageMs < FALL_MS;
+    const fallK = Math.min(1, ageMs / FALL_MS);
+    const z = falling ? FALL_HEIGHT_M * (1 - easeInQuad(fallK)) : 0;
+    const hotK = falling ? 0 : Math.min(1, Math.max(0, ageMs / HOT_MS));
+    const col = mixColor(palette.accent, palette.old, hotK);
+    dyn.pos[d * 3] = data.lon[i]; dyn.pos[d * 3 + 1] = data.lat[i]; dyn.pos[d * 3 + 2] = z;
+    dyn.color.set([col[0], col[1], col[2], 255 - (255 - LANDED_ALPHA) * hotK], d * 4);
+    dyn.radius[d] = LANDED_RADIUS_M + (HOT_RADIUS_M - LANDED_RADIUS_M) * (1 - hotK);
+    d++;
+    const rippleAge = ageMs - FALL_MS;
+    if (rippleAge > 0 && rippleAge < RIPPLE_MS) {
+      const rk = rippleAge / RIPPLE_MS;
+      ring.pos[r * 3] = data.lon[i]; ring.pos[r * 3 + 1] = data.lat[i]; ring.pos[r * 3 + 2] = 0;
+      ring.color.set([palette.accent[0], palette.accent[1], palette.accent[2], Math.round(230 * (1 - rk))], r * 4);
+      ring.radius[r] = LANDED_RADIUS_M + RIPPLE_MAX_M * (1 - Math.pow(1 - rk, 3));
+      r++;
+    }
+  }
+  dyn.length = d; ring.length = r;
+}
+
+function makeLayers(landedEnd) {
+  const { ScatterplotLayer } = deck;
+  const range = selectedBarri < 0 ? [-1, 999] : [selectedBarri, selectedBarri];
+  const filterExt = new deck.DataFilterExtension({ filterSize: 1 });
+  const landedCount = Math.max(0, landedEnd - datedStart);
+  const outlineLayers = outline ? [
+    new deck.PathLayer({
+      id: 'outline', data: outline.paths, getPath: d => d.path, getColor: [...palette.accent, OUTLINE_ALPHA],
+      getWidth: OUTLINE_WIDTH_PX, widthUnits: 'pixels', parameters: { depthTest: false },
+    }),
+    new deck.TextLayer({
+      id: 'outline-label', data: outline.labels, getPosition: d => d.position, getText: d => d.text,
+      getColor: [...palette.accent, 255], getSize: LABEL_SIZE_PX, sizeUnits: 'pixels', fontFamily: 'JetBrains Mono, monospace',
+      fontWeight: 500, getTextAnchor: 'middle', getAlignmentBaseline: 'bottom', getPixelOffset: [0, LABEL_OFFSET_PX],
+      parameters: { depthTest: false },
+    }),
+  ] : [];
+  return [
+    ...outlineLayers,
+    new ScatterplotLayer({
+      id: 'undated', pickable: true,
+      data: { length: datedStart, attributes: { getPosition: { value: positions, size: 3 } } },
+      getFillColor: [...palette.undated, selectedBarri < 0 ? 200 : 90],
+      radiusUnits: 'pixels', getRadius: 1.2, radiusMinPixels: 1.1,
+      updateTriggers: { getFillColor: [selectedBarri, palette] },
+    }),
+    new ScatterplotLayer({
+      id: 'landed', pickable: true,
+      data: { length: landedCount, attributes: {
+        getPosition: { value: positions.subarray(datedStart * 3), size: 3 },
+        getFilterValue: { value: filterValues.subarray(datedStart), size: 1 },
+      } },
+      getFillColor: [...palette.old, LANDED_ALPHA], getRadius: LANDED_RADIUS_M, radiusUnits: 'meters',
+      radiusMinPixels: 1.9, radiusMaxPixels: 8,
+      filterRange: range, extensions: [filterExt], parameters: { depthTest: false },
+      updateTriggers: { getFillColor: [palette] },
+    }),
+    new ScatterplotLayer({
+      id: 'rings',
+      data: { length: ring.length, attributes: {
+        getPosition: { value: ring.pos, size: 3 },
+        getLineColor: { value: ring.color, size: 4, normalized: true },
+        getRadius: { value: ring.radius, size: 1 },
+      } },
+      stroked: true, filled: false, lineWidthUnits: 'pixels', getLineWidth: 1.1, radiusUnits: 'meters', parameters: { depthTest: false },
+    }),
+    new ScatterplotLayer({
+      id: 'falling',
+      data: { length: dyn.length, attributes: {
+        getPosition: { value: dyn.pos, size: 3 },
+        getFillColor: { value: dyn.color, size: 4, normalized: true },
+        getRadius: { value: dyn.radius, size: 1 },
+      } },
+      radiusUnits: 'meters', radiusMinPixels: 2.2, radiusMaxPixels: 16, parameters: { depthTest: false },
+    }),
+  ];
+}
+
+function countFor(t) {
+  return selectedBarri < 0 ? indexAtOrBefore(t) - datedStart : lowerBound(plantedByBarri[selectedBarri], t);
+}
+function formatCount(n) { return n.toLocaleString('en-GB'); }
+function titleCase(s) {
+  return s.toLowerCase().replace(/(^|[\s'\-.])(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase())
+    .replace(/ (De|Del|La|Les|Els|I|Dels) /g, m => m.toLowerCase());
+}
+
+function updateHud() {
+  const date = new Date(epochMs + currentT * 86400000);
+  const year = date.getUTCFullYear();
+  yearEl.textContent = year;
+  const count = countFor(currentT);
+  countEl.textContent = formatCount(count);
+  const frac = currentT / maxT;
+  fillEl.style.width = (frac * 100).toFixed(3) + '%';
+  headEl.style.left = (frac * 100).toFixed(3) + '%';
+  timelineEl.setAttribute('aria-valuenow', String(year));
+  timelineEl.setAttribute('aria-valuetext', String(year));
+}
+
+function updateList() {
+  data.barris.forEach((_, b) => { if (listCounts[b]) listCounts[b].textContent = formatCount(lowerBound(plantedByBarri[b], currentT)); });
+}
+
+function describeSelection() {
+  const total = selectedBarri < 0 ? datedTotal : plantedByBarri[selectedBarri].length;
+  captionLeft.textContent = selectedBarri < 0 ? 'Trees planted since 2007' : 'Planted in ' + titleCase(data.barris[selectedBarri]);
+  captionRight.textContent = 'of ' + formatCount(total) + (selectedBarri < 0 ? ' with a date (22% of 145,397)' : ' with a date');
+  barriBtn.textContent = 'Barri: ' + (selectedBarri < 0 ? 'All Barcelona' : titleCase(data.barris[selectedBarri]));
+  clearBtn.hidden = selectedBarri < 0;
+  [...listEl.children].forEach((li, b) => li.firstChild.setAttribute('aria-current', String(b === selectedBarri)));
+}
+
+function convexHull(points) {
+  const sorted = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (sorted.length < 3) return sorted;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = list => {
+    const chain = [];
+    for (const p of list) {
+      while (chain.length >= 2 && cross(chain[chain.length - 2], chain[chain.length - 1], p) <= 0) chain.pop();
+      chain.push(p);
+    }
+    chain.pop();
+    return chain;
+  };
+  return half(sorted).concat(half(sorted.slice().reverse()));
+}
+
+// Envelope of every tree in a barri (dated or not); b = -1 is the whole city.
+const hullCache = new Map();
+function hullFor(b) {
+  if (!hullCache.has(b)) {
+    const points = [];
+    for (let i = 0; i < data.b.length; i++) if (b < 0 || data.b[i] === b) points.push([data.lon[i], data.lat[i]]);
+    hullCache.set(b, convexHull(points));
+  }
+  return hullCache.get(b);
+}
+
+// Hairline envelope of the barri, plus its name above it.
+function buildOutline(b) {
+  const hull = hullFor(b);
+  if (hull.length < 2) return null;
+  const box = barriBounds[b];
+  return {
+    paths: [{ path: [...hull, hull[0]] }],
+    labels: [{ text: titleCase(data.barris[b]).toUpperCase(), position: [(box[0] + box[2]) / 2, box[3]] }],
+  };
+}
+
+function selectBarri(b) {
+  selectedBarri = b;
+  if (b >= 0) autoRotate = false;
+  outline = b >= 0 ? buildOutline(b) : null;
+  describeSelection();
+  closePanel();
+  focusOn(b, reducedMotion || FILM ? 0 : 1400);
+}
+
+function openPanel() {
+  panelEl.classList.add('open');
+  barriBtn.setAttribute('aria-expanded', 'true');
+  // On phones the panel covers the controls, so hold playback while it is open.
+  if (innerWidth <= PHONE_MAX_WIDTH_PX && playing) { resumeAfterPanel = true; setPlaying(false); }
+  el('closePanel').focus();
+}
+
+function closePanel() {
+  if (!panelEl.classList.contains('open')) return;
+  panelEl.classList.remove('open');
+  barriBtn.setAttribute('aria-expanded', 'false');
+  barriBtn.focus();
+  if (resumeAfterPanel) { resumeAfterPanel = false; setPlaying(true); }
+}
+
+// The camera views the animation will pass through: the fit must hold for all of them, not just the first.
+function cameraViews() {
+  const sweep = [0, 0.5, 1];
+  if (FILM) {
+    return sweep.map(p => ({ bearing: lerp(FILM_BEARING_RANGE, p), pitch: lerp(FILM_PITCH_RANGE, p), zoomOffset: FILM_ZOOM_GAIN * p }));
+  }
+  if (autoRotate) {
+    return sweep.map(p => ({ bearing: START_BEARING + AUTO_ROTATE_SPAN_DEG * p, pitch: START_PITCH, zoomOffset: 0 }));
+  }
+  return [{ bearing: map.getBearing(), pitch: START_PITCH, zoomOffset: 0 }];
+}
+
+// cameraForBounds ignores pitch and bearing, so measure the real projected bounds in each view and
+// size the zoom to the tightest one. The camera is restored before returning, so nothing paints.
+function fitView(box, hull, views) {
+  const pad = { top: TOP_PADDING_PX, left: SIDE_PADDING_PX, right: SIDE_PADDING_PX, bottom: Math.round(innerHeight * BOTTOM_PADDING_RATIO) };
+  const availW = innerWidth - pad.left - pad.right;
+  const availH = innerHeight - pad.top - pad.bottom;
+  const base = map.cameraForBounds([[box[0], box[1]], [box[2], box[3]]], { padding: pad, bearing: 0, maxZoom: MAX_FIT_ZOOM });
+  if (!base) return null;
+  const saved = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+  const measure = (view, zoom) => {
+    map.jumpTo({ center: base.center, zoom, bearing: view.bearing, pitch: view.pitch });
+    const points = hull.map(c => map.project(c));
+    const xs = points.map(p => p.x), ys = points.map(p => p.y);
+    return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  };
+  let zoom = base.zoom;
+  for (let pass = 0; pass < FIT_PASSES; pass++) {
+    let tightest = Infinity;
+    for (const view of views) {
+      const r = measure(view, zoom + view.zoomOffset);
+      const scale = Math.min(availW / Math.max(1, r.x1 - r.x0), availH / Math.max(1, r.y1 - r.y0));
+      tightest = Math.min(tightest, zoom + Math.log2(scale));
+    }
+    zoom = Math.min(tightest, MAX_FIT_ZOOM);
+  }
+  const mid = views[views.length >> 1];
+  const r = measure(mid, zoom + mid.zoomOffset);
+  const dx = pad.left + availW / 2 - (r.x0 + r.x1) / 2;
+  const dy = pad.top + availH / 2 - (r.y0 + r.y1) / 2;
+  const center = map.unproject([innerWidth / 2 - dx, innerHeight / 2 - dy]);
+  map.jumpTo(saved);
+  return { center, zoom };
+}
+
+function focusOn(b, duration) {
+  const views = cameraViews();
+  const fit = fitView(b < 0 ? cityBounds : barriBounds[b], hullFor(b), views);
+  if (!fit) return;
+  if (selectedBarri < 0) baseCamera = fit;
+  map.easeTo({ center: fit.center, zoom: fit.zoom, pitch: views[0].pitch, bearing: views[0].bearing, duration });
+}
+
+function setPlaying(value) {
+  playing = value;
+  playBtn.textContent = value ? 'Pause' : (currentT >= maxT ? 'Replay' : 'Play');
+}
+function togglePlay() {
+  if (currentT >= maxT) currentT = 0;
+  setPlaying(!playing);
+}
+
+function setTimeFromFraction(frac) {
+  currentT = Math.min(1, Math.max(0, frac)) * maxT;
+  if (!playing) setPlaying(false);
+}
+function jumpYears(delta) {
+  const year = new Date(epochMs + currentT * 86400000).getUTCFullYear() + delta;
+  const clamped = Math.min(lastYear, Math.max(firstYear, year));
+  currentT = Math.min(maxT, (Date.UTC(clamped, 0, 1) - epochMs) / 86400000);
+}
+
+function buildTimeline() {
+  for (let y = firstYear; y <= lastYear + 1; y++) {
+    const frac = Math.min(1, (Date.UTC(y, 0, 1) - epochMs) / 86400000 / maxT);
+    const major = y % 5 === 0;
+    const tick = document.createElement('div');
+    tick.className = 'tick' + (major ? ' major' : '');
+    tick.style.left = (frac * 100) + '%';
+    timelineEl.append(tick);
+    if (major && y <= lastYear) {
+      const label = document.createElement('span');
+      label.className = 'label'; label.textContent = y; label.style.left = (frac * 100) + '%';
+      timelineEl.append(label);
+    }
+  }
+  let dragging = false;
+  const fromEvent = e => { const r = timelineEl.getBoundingClientRect(); setTimeFromFraction((e.clientX - r.left) / r.width); };
+  timelineEl.addEventListener('pointerdown', e => { dragging = true; timelineEl.setPointerCapture(e.pointerId); fromEvent(e); });
+  timelineEl.addEventListener('pointermove', e => { if (dragging) fromEvent(e); });
+  timelineEl.addEventListener('pointerup', () => { dragging = false; });
+  timelineEl.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') { jumpYears(KEY_STEP_YEARS); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { jumpYears(-KEY_STEP_YEARS); e.preventDefault(); }
+    else if (e.key === 'Home') { currentT = 0; e.preventDefault(); }
+    else if (e.key === 'End') { currentT = maxT; e.preventDefault(); }
+  });
+}
+
+function buildControls() {
+  data.barris.forEach((name, b) => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    const label = document.createElement('span');
+    label.textContent = titleCase(name);
+    const n = document.createElement('span');
+    n.className = 'n'; n.textContent = '0';
+    listCounts[b] = n;
+    btn.append(label, n);
+    btn.addEventListener('click', () => selectBarri(b));
+    li.append(btn);
+    listEl.append(li);
+  });
+  barriBtn.addEventListener('click', () => (panelEl.classList.contains('open') ? closePanel() : openPanel()));
+  el('closePanel').addEventListener('click', closePanel);
+  clearBtn.addEventListener('click', () => { selectBarri(-1); barriBtn.focus(); });
+  playBtn.addEventListener('click', togglePlay);
+  speedEl.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    speed = Number(btn.dataset.speed);
+    for (const b of speedEl.children) b.setAttribute('aria-pressed', String(b === btn));
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closePanel();
+    else if (e.target === document.body && e.key === ' ') { togglePlay(); e.preventDefault(); }
+  });
+  buildTimeline();
+}
+
+function filmCamera() {
+  if (!FILM || !baseCamera) return;
+  const p = Math.min(1, currentT / maxT);
+  map.jumpTo({
+    center: baseCamera.center, zoom: baseCamera.zoom + FILM_ZOOM_GAIN * p,
+    bearing: lerp(FILM_BEARING_RANGE, p), pitch: lerp(FILM_PITCH_RANGE, p),
+  });
+}
+
+function tick(now) {
+  const dtMs = Math.min(100, now - lastFrame);
+  lastFrame = now;
+  if (playing) {
+    currentT = Math.min(maxT, currentT + daysPerMs() * dtMs);
+    if (currentT >= maxT) setPlaying(false);
+    if (autoRotate) {
+      const bearing = map.getBearing() + (AUTO_ROTATE_DEG_PER_SEC * dtMs) / 1000;
+      if (bearing >= START_BEARING + AUTO_ROTATE_SPAN_DEG) autoRotate = false;
+      else map.setBearing(bearing);
+    }
+  }
+  filmCamera();
+  const target = indexAtOrBefore(currentT);
+  const windowDays = (HOT_MS + 100) * daysPerMs();
+  const landedEnd = Math.min(target, indexAtOrBefore(currentT - windowDays));
+  frameDynamic(landedEnd, target);
+  deckOverlay.setProps({ layers: makeLayers(landedEnd).filter(layer => layer.props.data.length > 0) });
+  updateHud();
+  if (now - lastList > COUNT_REFRESH_MS) { updateList(); lastList = now; }
+  requestAnimationFrame(tick);
+}
+
+function onMapClick(info) {
+  if (!info || info.index == null || info.index < 0 || !info.layer) return;
+  const offset = info.layer.id === 'landed' ? datedStart : 0;
+  const b = data.b[offset + info.index];
+  if (b >= 0 && b !== selectedBarri) selectBarri(b);
+}
+
+function onMapHover(info) {
+  map.getCanvas().style.cursor = info && info.index != null && info.index >= 0 && info.layer ? 'pointer' : '';
+}
+
+function start(json) {
+  data = json;
+  epochMs = Date.parse(data.epoch);
+  while (datedStart < data.t.length && data.t[datedStart] === UNDATED) datedStart++;
+  maxT = data.t[data.t.length - 1];
+  firstYear = new Date(epochMs).getUTCFullYear();
+  lastYear = new Date(epochMs + maxT * 86400000).getUTCFullYear();
+  timelineEl.setAttribute('aria-valuemin', String(firstYear));
+  timelineEl.setAttribute('aria-valuemax', String(lastYear));
+  buildIndexes();
+  buildBuffers();
+  readPalette();
+  buildControls();
+  describeSelection();
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', readPalette);
+  if (FILM) document.body.classList.add('film');
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style: { version: 8, sources: {}, layers: [{ id: 'ground', type: 'background', paint: { 'background-color': palette.ground } }] },
+    center: [(cityBounds[0] + cityBounds[2]) / 2, (cityBounds[1] + cityBounds[3]) / 2], zoom: 11,
+    bearing: FILM ? FILM_BEARING_RANGE[0] : START_BEARING, maxPitch: 80, attributionControl: false, interactive: !FILM,
+  });
+  ['mousedown', 'touchstart', 'wheel'].forEach(evt => map.on(evt, () => { autoRotate = false; }));
+  map.on('error', e => { if (!mapLoaded) showFailure(MESSAGES.start, e.error); });
+  map.on('load', () => {
+    mapLoaded = true;
+    deckOverlay = new deck.MapboxOverlay({
+      interleaved: false, layers: [], onClick: onMapClick, onHover: onMapHover, pickingRadius: PICKING_RADIUS_PX,
+    });
+    map.addControl(deckOverlay);
+    focusOn(-1, 0);
+    statusEl.hidden = true;
+    const begin = () => setPlaying(!reducedMotion);
+    FILM ? setTimeout(begin, FILM_START_DELAY_MS) : begin();
+    requestAnimationFrame(t => { lastFrame = t; tick(t); });
+  });
+}
+
+function boot() {
+  if (typeof maplibregl === 'undefined' || typeof deck === 'undefined') return showFailure(MESSAGES.libraries);
+  if (!hasWebGL()) return showFailure(MESSAGES.webgl);
+  setTimeout(() => { if (!statusEl.hidden && !statusEl.classList.contains('failed')) statusTextEl.textContent = MESSAGES.slow; }, SLOW_LOAD_MS);
+  fetch('trees.json')
+    .then(r => { if (!r.ok) throw new Error('trees.json ' + r.status); return r.json(); })
+    .catch(err => { throw new LoadFailure(MESSAGES.data, { cause: err }); })
+    .then(start)
+    .catch(err => showFailure(err instanceof LoadFailure ? err.message : MESSAGES.start, err));
+}
+boot();
+</script>
+</body>
+</html>
